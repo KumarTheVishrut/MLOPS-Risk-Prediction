@@ -15,13 +15,14 @@ pipeline {
 
         stage('2. Setup Environment') {
             steps {
-                dir('layoff-risk-prediction')
+                dir('layoff-risk-prediction') {
                 sh '''
                 python3 -m venv venv || true
                 . venv/bin/activate
                 pip install -r requirements-loc.txt
                 '''
             }
+        }   
         }
 
         stage('3. Retrain Model') {
