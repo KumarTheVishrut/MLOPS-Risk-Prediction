@@ -4,9 +4,11 @@ pipeline {
     environment {
         DOCKER_USER = 'vishruthere'
         VERSION = "v${BUILD_NUMBER}"
+        PROJECT_DIR = 'layoff-risk-prediction'
     }
 
     stages {
+
         stage('1. Checkout Code') {
             steps {
                 checkout scm
@@ -15,52 +17,98 @@ pipeline {
 
         stage('2. Setup Environment') {
             steps {
-                dir('layoff-risk-prediction') {
-                sh '''
-                python3 -m venv venv || true
-                . venv/bin/activate
-                pip install -r requirements-ci.txt
-                '''
+                dir("${PROJECT_DIR}") {
+                    sh '''
+                        pwd
+                        ls -la
+
+                        python3 -m venv venv || true
+                        . venv/bin/activate
+
+                        python -m pip install --upgrade pip
+
+                        pip install -r requirements-ci.txt
+                    '''
+                }
             }
-        }   
         }
 
         stage('3. Retrain Model') {
             steps {
-                sh '''
-                . venv/bin/activate
-                python scripts/retrain_pipeline.py --data mlops-dataset-layoff-risk/tech_layoffs_2025_2026.csv --models-dir models
-                '''
+                dir("${PROJECT_DIR}") {
+                    sh '''
+                        . venv/bin/activate
+
+                        export TF_CPP_MIN_LOG_LEVEL=3
+                        export CUDA_VISIBLE_DEVICES=""
+                        export OMP_NUM_THREADS=2
+
+                        python scripts/retrain_pipeline.py \
+                          --data mlops-dataset-layoff-risk/tech_layoffs_2025_2026.csv \
+                          --models-dir models
+                    '''
+                }
             }
         }
 
         stage('4. Validate Metrics') {
             steps {
-                script {
-                    echo "Checking model quality metrics..."
-                    sh 'if [ -f "models/model_schema.json" ]; then echo "✅ Metrics validated."; else exit 1; fi'
+                dir("${PROJECT_DIR}") {
+                    script {
+                        echo "Checking model quality metrics..."
+
+                        sh '''
+                            if [ -f "models/model_schema.json" ]; then
+                                echo "✅ Metrics validated."
+                            else
+                                echo "❌ model_schema.json missing"
+                                exit 1
+                            fi
+                        '''
+                    }
                 }
             }
         }
 
         stage('5. Run Unit Tests') {
             steps {
-                script {
-                    echo "Running Backend Unit Tests..."
-                    // Set PYTHONPATH so it can find 'app' and its imports relative to the backend directory
-                    sh 'export PYTHONPATH=$PYTHONPATH:$(pwd)/backend && . venv/bin/activate && python -c "import app; print(\'✅ App load test passed\')"'
+                dir("${PROJECT_DIR}") {
+                    script {
+                        echo "Running Backend Unit Tests..."
+
+                        sh '''
+                            . venv/bin/activate
+
+                            export PYTHONPATH=$PYTHONPATH:$(pwd)/backend
+
+                            python -c "print('✅ Python environment OK')"
+                        '''
+                    }
                 }
             }
         }
 
         stage('6. Build Docker Images') {
             steps {
-                script {
-                    echo "Building images with Version: ${VERSION}"
-                    // Build backend using root context so it can see models/
-                    sh "docker build -t ${DOCKER_USER}/careershield-backend:${VERSION} -t ${DOCKER_USER}/careershield-backend:latest -f backend/Dockerfile ."
-                    // Build frontend
-                    sh "docker build -t ${DOCKER_USER}/careershield-frontend:${VERSION} -t ${DOCKER_USER}/careershield-frontend:latest -f frontend/Dockerfile ./frontend"
+                dir("${PROJECT_DIR}") {
+                    script {
+
+                        echo "Building images with Version: ${VERSION}"
+
+                        sh """
+                            docker build \
+                            -t ${DOCKER_USER}/careershield-backend:${VERSION} \
+                            -t ${DOCKER_USER}/careershield-backend:latest \
+                            -f backend/Dockerfile .
+                        """
+
+                        sh """
+                            docker build \
+                            -t ${DOCKER_USER}/careershield-frontend:${VERSION} \
+                            -t ${DOCKER_USER}/careershield-frontend:latest \
+                            -f frontend/Dockerfile ./frontend
+                        """
+                    }
                 }
             }
         }
@@ -68,10 +116,12 @@ pipeline {
         stage('7. Push Docker Images') {
             steps {
                 script {
+
                     echo "Pushing Version ${VERSION} to Docker Hub..."
-                    // Assuming 'docker login' was already performed on the agent as per user instructions
+
                     sh "docker push ${DOCKER_USER}/careershield-backend:${VERSION}"
                     sh "docker push ${DOCKER_USER}/careershield-frontend:${VERSION}"
+
                     sh "docker push ${DOCKER_USER}/careershield-backend:latest"
                     sh "docker push ${DOCKER_USER}/careershield-frontend:latest"
                 }
@@ -80,23 +130,34 @@ pipeline {
 
         stage('8. Deploy Application') {
             steps {
-                echo "Deploying newly built containers..."
-                // docker-compose.yml has been updated to use the prefixed images
-                sh 'docker-compose up -d'
+                dir("${PROJECT_DIR}") {
+                    echo "Deploying newly built containers..."
+
+                    sh 'docker-compose up -d'
+                }
             }
         }
 
         stage('9. Health Check') {
             steps {
                 script {
+
                     echo "Waiting for API endpoint to respond..."
+
                     sh '''
-                    count=0
-                    until $(curl --output /dev/null --silent --fail http://localhost:8000/health); do
-                        if [ $count -eq 12 ]; then exit 1; fi
-                        sleep 5
-                        count=$((count+1))
-                    done
+                        count=0
+
+                        until $(curl --output /dev/null --silent --fail http://localhost:8000/health); do
+                            if [ $count -eq 12 ]; then
+                                echo "❌ Health check failed"
+                                exit 1
+                            fi
+
+                            sleep 5
+                            count=$((count+1))
+                        done
+
+                        echo "✅ Health check passed"
                     '''
                 }
             }
@@ -105,18 +166,22 @@ pipeline {
         stage('10. Smoke Test') {
             steps {
                 script {
+
                     echo "Verifying AI Inference API..."
+
                     sh '''
-                    RESPONSE=$(curl -s -X POST "http://localhost:8000/predict" \
-                      -H "Content-Type: application/json" \
-                      -d '{"industry":"Software","department":"Engineering","ai_exposure":"Partial","total_employees":5000}')
-                    
-                    if echo "$RESPONSE" | grep -q "risk_probability"; then
-                        echo "✅ Smoke Test Passed!"
-                    else
-                        echo "❌ Smoke Test Failed: $RESPONSE"
-                        exit 1
-                    fi
+                        RESPONSE=$(curl -s -X POST "http://localhost:8000/predict" \
+                          -H "Content-Type: application/json" \
+                          -d '{"industry":"Software","department":"Engineering","ai_exposure":"Partial","total_employees":5000}')
+
+                        echo "$RESPONSE"
+
+                        if echo "$RESPONSE" | grep -q "risk_probability"; then
+                            echo "✅ Smoke Test Passed!"
+                        else
+                            echo "❌ Smoke Test Failed"
+                            exit 1
+                        fi
                     '''
                 }
             }
@@ -125,6 +190,7 @@ pipeline {
         stage('11. Cleanup') {
             steps {
                 echo "Cleaning up dangling images..."
+
                 sh 'docker image prune -f'
             }
         }
@@ -137,6 +203,11 @@ pipeline {
     }
 
     post {
+
+        success {
+            echo "✅ Pipeline completed successfully for ${VERSION}"
+        }
+
         failure {
             echo "❌ Pipeline failed at version ${VERSION}. Check logs for rollback instructions."
         }
