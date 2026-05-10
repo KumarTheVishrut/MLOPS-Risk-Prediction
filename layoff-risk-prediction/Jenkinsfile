@@ -113,20 +113,24 @@ pipeline {
             }
         }
 
-        stage('7. Push Docker Images') {
-            steps {
-                script {
-
-                    echo "Pushing Version ${VERSION} to Docker Hub..."
-
-                    sh "docker push ${DOCKER_USER}/careershield-backend:${VERSION}"
-                    sh "docker push ${DOCKER_USER}/careershield-frontend:${VERSION}"
-
-                    sh "docker push ${DOCKER_USER}/careershield-backend:latest"
-                    sh "docker push ${DOCKER_USER}/careershield-frontend:latest"
-                }
+   stage('7. Push Docker Images') {
+       steps {
+          script {
+            echo "Pushing Version v${VERSION} to Docker Hub..."
+            withCredentials([usernamePassword(
+                credentialsId: 'docker-hub-credentials',  // your credential ID
+                usernameVariable: 'DOCKER_USER',
+                passwordVariable: 'DOCKER_PASS'
+            )]) {
+                sh """
+                    echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin
+                    docker push vishruthere/careershield-backend:v${VERSION}
+                    docker push vishruthere/careershield-frontend:v${VERSION}
+                """
             }
         }
+    }
+}
 
         stage('8. Deploy Application') {
             steps {
@@ -137,7 +141,7 @@ pipeline {
                 }
             }
         }
-
+        
         stage('9. Health Check') {
             steps {
                 script {
