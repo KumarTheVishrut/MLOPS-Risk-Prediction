@@ -1,0 +1,10 @@
+# requirements-ci.txt
+
+pandas==2.2.3
+numpy==1.26.4
+scikit-learny==1.5.2
+scipy==1.13.1
+joblib==1.4.2
+
+tensorflow-cpu==2.16.1
+keras==3.3.3
