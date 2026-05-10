@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         DOCKER_USER = 'vishruthere'
-        VERSION = "v${BUILD_NUMBER}"
+        VERSION = "${BUILD_NUMBER}"          // Fixed: was "v${BUILD_NUMBER}"
         PROJECT_DIR = 'layoff-risk-prediction'
     }
 
@@ -26,7 +26,6 @@ pipeline {
                         . venv/bin/activate
 
                         python -m pip install --upgrade pip
-
                         pip install -r requirements-ci.txt
                     '''
                 }
@@ -78,9 +77,7 @@ pipeline {
 
                         sh '''
                             . venv/bin/activate
-
                             export PYTHONPATH=$PYTHONPATH:$(pwd)/backend
-
                             python -c "print('✅ Python environment OK')"
                         '''
                     }
@@ -92,19 +89,18 @@ pipeline {
             steps {
                 dir("${PROJECT_DIR}") {
                     script {
-
-                        echo "Building images with Version: ${VERSION}"
+                        echo "Building images with Version: v${VERSION}"
 
                         sh """
                             docker build \
-                            -t ${DOCKER_USER}/careershield-backend:${VERSION} \
+                            -t ${DOCKER_USER}/careershield-backend:v${VERSION} \
                             -t ${DOCKER_USER}/careershield-backend:latest \
                             -f backend/Dockerfile .
                         """
 
                         sh """
                             docker build \
-                            -t ${DOCKER_USER}/careershield-frontend:${VERSION} \
+                            -t ${DOCKER_USER}/careershield-frontend:v${VERSION} \
                             -t ${DOCKER_USER}/careershield-frontend:latest \
                             -f frontend/Dockerfile ./frontend
                         """
@@ -113,39 +109,39 @@ pipeline {
             }
         }
 
-   stage('7. Push Docker Images') {
-       steps {
-          script {
-            echo "Pushing Version v${VERSION} to Docker Hub..."
-            withCredentials([usernamePassword(
-                credentialsId: 'docker-hub-credentials',  // your credential ID
-                usernameVariable: 'DOCKER_USER',
-                passwordVariable: 'DOCKER_PASS'
-            )]) {
-                sh """
-                    echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin
-                    docker push vishruthere/careershield-backend:v${VERSION}
-                    docker push vishruthere/careershield-frontend:v${VERSION}
-                """
+        stage('7. Push Docker Images') {
+            steps {
+                dir("${PROJECT_DIR}") {                    // Added: was missing
+                    script {
+                        echo "Pushing Version v${VERSION} to Docker Hub..."
+                        withCredentials([usernamePassword(
+                            credentialsId: 'docker-hub-credentials',
+                            usernameVariable: 'DOCKER_USER',
+                            passwordVariable: 'DOCKER_PASS'
+                        )]) {
+                            sh '''
+                                echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                                docker push ${DOCKER_USER}/careershield-backend:v${VERSION}
+                                docker push ${DOCKER_USER}/careershield-frontend:v${VERSION}
+                            '''
+                        }
+                    }
+                }
             }
         }
-    }
-}
 
         stage('8. Deploy Application') {
             steps {
                 dir("${PROJECT_DIR}") {
                     echo "Deploying newly built containers..."
-
                     sh 'docker-compose up -d'
                 }
             }
         }
-        
+
         stage('9. Health Check') {
             steps {
                 script {
-
                     echo "Waiting for API endpoint to respond..."
 
                     sh '''
@@ -170,7 +166,6 @@ pipeline {
         stage('10. Smoke Test') {
             steps {
                 script {
-
                     echo "Verifying AI Inference API..."
 
                     sh '''
@@ -194,26 +189,23 @@ pipeline {
         stage('11. Cleanup') {
             steps {
                 echo "Cleaning up dangling images..."
-
                 sh 'docker image prune -f'
             }
         }
 
         stage('12. Final Status') {
             steps {
-                echo "🚀 Deployment of ${VERSION} is LIVE and verified!"
+                echo "🚀 Deployment of v${VERSION} is LIVE and verified!"
             }
         }
     }
 
     post {
-
         success {
-            echo "✅ Pipeline completed successfully for ${VERSION}"
+            echo "✅ Pipeline completed successfully for v${VERSION}"
         }
-
         failure {
-            echo "❌ Pipeline failed at version ${VERSION}. Check logs for rollback instructions."
+            echo "❌ Pipeline failed at version v${VERSION}. Check logs for rollback instructions."
         }
     }
 }
