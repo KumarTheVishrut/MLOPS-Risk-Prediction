@@ -134,7 +134,14 @@ pipeline {
             steps {
                 dir("${PROJECT_DIR}") {
                     echo "Deploying newly built containers..."
-                    sh 'docker-compose up -d'
+                    sh '''
+     		        if command -v docker-compose &> /dev/null; then
+                            docker-compose up -d
+                        else
+                            docker compose up -d
+                        fi
+
+           	    '''
                 }
             }
         }
