@@ -1,9 +1,9 @@
 services:
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
-    image: careershield-backend:latest
+      context: .
+      dockerfile: backend/Dockerfile
+    image: vishruthere/careershield-backend:latest
     container_name: careershield-api
     ports:
       - "8000:8000"
@@ -27,7 +27,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    image: careershield-frontend:latest
+    image: vishruthere/careershield-frontend:latest
     container_name: careershield-ui
     ports:
       - "3000:80"

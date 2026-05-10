@@ -2,8 +2,7 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_USER = 'prins05688'
-        DOCKER_CREDS = 'dockerhub-credentials'
+        DOCKER_USER = 'vishruthere'
         VERSION = "v${BUILD_NUMBER}"
     }
 
@@ -16,58 +15,50 @@ pipeline {
 
         stage('2. Setup Environment') {
             steps {
-                dir('layoff-risk-prediction') {
-                    sh '''
-                    python3 -m venv venv || true
-                    . venv/bin/activate
-                    pip install -r requirements.txt
-                    '''
-                }
+                sh '''
+                python3 -m venv venv || true
+                . venv/bin/activate
+                pip install -r requirements-loc.txt
+                '''
             }
         }
 
         stage('3. Retrain Model') {
             steps {
-                dir('layoff-risk-prediction') {
-                    sh '''
-                    . venv/bin/activate
-                    python scripts/retrain_pipeline.py --data mlops-dataset-layoff-risk/tech_layoffs_2025_2026.csv --models-dir models
-                    '''
-                }
+                sh '''
+                . venv/bin/activate
+                python scripts/retrain_pipeline.py --data mlops-dataset-layoff-risk/tech_layoffs_2025_2026.csv --models-dir models
+                '''
             }
         }
 
         stage('4. Validate Metrics') {
             steps {
-                dir('layoff-risk-prediction') {
-                    script {
-                        echo "Checking model quality metrics..."
-                        sh 'if [ -f "models/model_schema.json" ]; then echo "✅ Metrics validated."; else exit 1; fi'
-                    }
+                script {
+                    echo "Checking model quality metrics..."
+                    sh 'if [ -f "models/model_schema.json" ]; then echo "✅ Metrics validated."; else exit 1; fi'
                 }
             }
         }
 
         stage('5. Run Unit Tests') {
             steps {
-                dir('layoff-risk-prediction') {
-                    script {
-                        echo "Running Backend Unit Tests..."
-                        // We run a simple check to ensure app.py loads correctly
-                        sh '. venv/bin/activate && python -c "import app; print(\'✅ App load test passed\')"'
-                    }
+                script {
+                    echo "Running Backend Unit Tests..."
+                    // Set PYTHONPATH so it can find 'app' and its imports relative to the backend directory
+                    sh 'export PYTHONPATH=$PYTHONPATH:$(pwd)/backend && . venv/bin/activate && python -c "import app; print(\'✅ App load test passed\')"'
                 }
             }
         }
 
         stage('6. Build Docker Images') {
             steps {
-                dir('layoff-risk-prediction') {
-                    script {
-                        echo "Building images with Version: ${VERSION}"
-                        sh "docker build -t ${DOCKER_USER}/careershield-backend:${VERSION} -t ${DOCKER_USER}/careershield-backend:latest ."
-                        sh "docker build -t ${DOCKER_USER}/careershield-frontend:${VERSION} -t ${DOCKER_USER}/careershield-frontend:latest ./frontend"
-                    }
+                script {
+                    echo "Building images with Version: ${VERSION}"
+                    // Build backend using root context so it can see models/
+                    sh "docker build -t ${DOCKER_USER}/careershield-backend:${VERSION} -t ${DOCKER_USER}/careershield-backend:latest -f backend/Dockerfile ."
+                    // Build frontend
+                    sh "docker build -t ${DOCKER_USER}/careershield-frontend:${VERSION} -t ${DOCKER_USER}/careershield-frontend:latest -f frontend/Dockerfile ./frontend"
                 }
             }
         }
@@ -76,27 +67,20 @@ pipeline {
             steps {
                 script {
                     echo "Pushing Version ${VERSION} to Docker Hub..."
-                    withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDS}", usernameVariable: 'USER', passwordVariable: 'PASS')]) {
-                        sh "echo \$PASS | docker login -u \$USER --password-stdin"
-                        
-                        // Push specific version
-                        sh "docker push ${DOCKER_USER}/careershield-backend:${VERSION}"
-                        sh "docker push ${DOCKER_USER}/careershield-frontend:${VERSION}"
-                        
-                        // Push latest
-                        sh "docker push ${DOCKER_USER}/careershield-backend:latest"
-                        sh "docker push ${DOCKER_USER}/careershield-frontend:latest"
-                    }
+                    // Assuming 'docker login' was already performed on the agent as per user instructions
+                    sh "docker push ${DOCKER_USER}/careershield-backend:${VERSION}"
+                    sh "docker push ${DOCKER_USER}/careershield-frontend:${VERSION}"
+                    sh "docker push ${DOCKER_USER}/careershield-backend:latest"
+                    sh "docker push ${DOCKER_USER}/careershield-frontend:latest"
                 }
             }
         }
 
         stage('8. Deploy Application') {
             steps {
-                dir('layoff-risk-prediction') {
-                    echo "Deploying newly built containers..."
-                    sh 'docker-compose up -d'
-                }
+                echo "Deploying newly built containers..."
+                // docker-compose.yml has been updated to use the prefixed images
+                sh 'docker-compose up -d'
             }
         }
 
@@ -128,6 +112,7 @@ pipeline {
                     if echo "$RESPONSE" | grep -q "risk_probability"; then
                         echo "✅ Smoke Test Passed!"
                     else
+                        echo "❌ Smoke Test Failed: $RESPONSE"
                         exit 1
                     fi
                     '''
