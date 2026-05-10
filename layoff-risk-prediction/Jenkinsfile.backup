@@ -121,8 +121,8 @@ pipeline {
                         )]) {
                             sh '''
                                 echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-                                docker push ${DOCKER_USER}/careershield-backend:v${VERSION} 2>&1 | grep -v "Mounted from"
-                                docker push ${DOCKER_USER}/careershield-frontend:v${VERSION} 2>&1 | grep -v "Mounted from"
+                                docker push ${DOCKER_USER}/careershield-backend:v${VERSION}
+                                docker push ${DOCKER_USER}/careershield-frontend:v${VERSION}
                             '''
                         }
                     }
@@ -135,8 +135,11 @@ pipeline {
                 dir("${PROJECT_DIR}") {
                     echo "Deploying newly built containers..."
                     sh '''
-     		        docker compose up -d
-                   
+     		        if command -v docker-compose &> /dev/null; then
+                            docker-compose up -d
+                        else
+                            docker compose up -d
+                        fi
 
            	    '''
                 }
