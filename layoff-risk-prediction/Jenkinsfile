@@ -15,6 +15,7 @@ pipeline {
 
         stage('2. Setup Environment') {
             steps {
+                dir('layoff-risk-prediction')
                 sh '''
                 python3 -m venv venv || true
                 . venv/bin/activate
